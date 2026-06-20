@@ -19,7 +19,7 @@ metadata:
   namespace: default
 stringData:
   JWT_SECRET: "change-this-to-a-strong-random-secret"
-  ADMIN_INIT_CODE: "your-admin-setup-code-here"
+  CORS_ORIGINS: "*"
 
 ---
 apiVersion: apps/v1
@@ -55,11 +55,11 @@ spec:
                 secretKeyRef:
                   name: sallimnote-secret
                   key: JWT_SECRET
-            - name: ADMIN_INIT_CODE
+            - name: CORS_ORIGINS
               valueFrom:
                 secretKeyRef:
                   name: sallimnote-secret
-                  key: ADMIN_INIT_CODE
+                  key: CORS_ORIGINS
           resources:
             requests:
               memory: "128Mi"

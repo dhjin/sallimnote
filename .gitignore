@@ -3,3 +3,6 @@ __pycache__/
 *.pyo
 node_modules/
 .env
+*.db
+.pytest_cache/
+.venv/

@@ -1,4 +1,8 @@
-"""살림노트 backend server — FastAPI + PostgreSQL."""
+"""산후조리원 멀티테넌트 backend — FastAPI + PostgreSQL.
+
+모든 도메인 데이터는 tenant_id 로 격리된다. 도메인 쿼리는 예외 없이
+get_tenant_scope 로 얻은 tenant_id 로 필터링한다(테넌트 누수 방지).
+"""
 
 import os
 import secrets
@@ -6,7 +10,7 @@ import string
 from datetime import datetime, date
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,25 +18,26 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from models import (
-    Base, Member, FamilyInvite,
-    MonthlyBudget, FixedExpense, Investment, InstallmentSavings, TodoItem, Schedule,
+    Base, Tenant, Member, TenantInvite,
+    Room, Baby, NeonatalHealthLog, RoutineTask,
 )
 from auth import (
     hash_password, verify_password, create_token,
-    get_current_member, require_admin,
+    get_current_member, get_tenant_scope, require_admin,
 )
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-engine       = create_engine(DATABASE_URL)
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
+
+# SQLite(개발/테스트)는 스레드 체크 옵션 필요
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine       = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
 
-ADMIN_INIT_CODE = os.environ.get("ADMIN_INIT_CODE", "admin-setup-2025")
-
-app = FastAPI(title="살림노트 API", version="1.0.0")
+app = FastAPI(title="산후조리원 관리 API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,10 +51,6 @@ def get_db():
         db.close()
 
 
-def _now_str() -> str:
-    return datetime.utcnow().isoformat()
-
-
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
@@ -59,355 +60,398 @@ def _parse_dt(s: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _parse_date(s: Optional[str]) -> Optional[date]:
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s)
+    except Exception:
+        return None
+
+
 # ── Schema (Pydantic) ─────────────────────────────────────────────────────────
 
-class RegisterRequest(BaseModel):
+class RegisterTenantRequest(BaseModel):
+    """신규 조리원 + owner 계정 생성."""
+    tenant_name:  str
     username:     str
     display_name: str
     password:     str
-    invite_code:  str   # admin-setup code OR family invite code
+    pin_code:     Optional[str] = None
+
+
+class RegisterStaffRequest(BaseModel):
+    """초대코드로 직원 가입."""
+    username:     str
+    display_name: str
+    password:     str
+    invite_code:  str
+    pin_code:     Optional[str] = None
+
 
 class TokenResponse(BaseModel):
-    access_token:  str
-    token_type:    str = "bearer"
-    member_id:     str
-    display_name:  str
-    role:          str
+    access_token: str
+    token_type:   str = "bearer"
+    member_id:    str
+    display_name: str
+    role:         str
+    tenant_id:    str
+    tenant_name:  str
+
+
+class PinLoginRequest(BaseModel):
+    pin_code: str
+
+
+class InviteRequest(BaseModel):
+    role: str = "nurse"
+
 
 class InviteResponse(BaseModel):
     code: str
+    role: str
 
-class BudgetIn(BaseModel):
-    husband_income: float = 0
-    wife_income:    float = 0
-    husband_pocket: float = 0
-    wife_pocket:    float = 0
-    note:           str   = ""
 
-class ExpenseIn(BaseModel):
-    id:         Optional[str] = None
-    name:       str
-    amount:     float = 0
-    category:   str   = "기타"
-    note:       str   = ""
-    is_active:  bool  = True
-    sort_order: int   = 0
-    deleted:    bool  = False
+class RoomIn(BaseModel):
+    id:      Optional[str] = None
+    name:    str
+    deleted: bool = False
 
-class InvestmentIn(BaseModel):
+
+class BabyIn(BaseModel):
+    id:            Optional[str] = None
+    name:          str
+    room_id:       Optional[str] = None
+    birth_date:    Optional[str] = None      # "YYYY-MM-DD"
+    guardian_name: str  = ""
+    is_active:     bool = True
+    deleted:       bool = False
+
+
+class HealthLogIn(BaseModel):
+    id:          Optional[str] = None
+    baby_id:     str
+    temperature: Optional[float] = None
+    feeding_ml:  Optional[int]   = None
+    memo:        str = ""
+    timestamp:   Optional[str] = None
+    worker_id:   Optional[str] = None
+    deleted:     bool = False
+
+
+class RoutineTaskIn(BaseModel):
     id:             Optional[str] = None
-    name:           str
-    type:           str   = "기타"
-    monthly_amount: float = 0
-    current_value:  float = 0
-    note:           str   = ""
-    is_active:      bool  = True
-    deleted:        bool  = False
+    room_id:        Optional[str] = None
+    task_name:      str
+    scheduled_time: Optional[str] = None
+    completed_time: Optional[str] = None
+    completed_by:   Optional[str] = None
+    deleted:        bool = False
 
-class SavingsIn(BaseModel):
-    id:             Optional[str] = None
-    name:           str
-    target_amount:  float = 0
-    monthly_amount: float = 0
-    paid_months:    int   = 0
-    total_months:   int   = 12
-    start_date:     Optional[str] = None
-    status:         str   = "진행중"
-    note:           str   = ""
-    deleted:        bool  = False
-
-class TodoIn(BaseModel):
-    id:               Optional[str] = None
-    title:            str
-    note:             str   = ""
-    is_completed:     bool  = False
-    priority:         int   = 1
-    assignee:         str   = "공동"
-    category:         str   = "일반"
-    due_date:         Optional[str] = None
-    reminder_enabled: bool  = False
-    reminder_date:    Optional[str] = None
-    completed_at:     Optional[str] = None
-    deleted:          bool  = False
-
-class ScheduleIn(BaseModel):
-    id:       Optional[str] = None
-    title:    str
-    date:     str           # "YYYY-MM-DD"
-    time:     Optional[str] = None   # "HH:MM" or null
-    all_day:  bool  = True
-    category: str   = "일반"
-    note:     str   = ""
-    deleted:  bool  = False
 
 class SyncRequest(BaseModel):
-    """Full sync payload — client sends all local changes, receives full server state."""
-    expenses:    list[ExpenseIn]    = []
-    investments: list[InvestmentIn] = []
-    savings:     list[SavingsIn]    = []
-    todos:       list[TodoIn]       = []
-    schedules:   list[ScheduleIn]   = []
-    budgets:     list[dict]         = []  # [{year, month, ...BudgetIn}] — plural to match client
+    """오프라인 단말의 로컬 변경분 업로드. 서버는 테넌트 상태 반환."""
+    rooms:         list[RoomIn]        = []
+    babies:        list[BabyIn]        = []
+    health_logs:   list[HealthLogIn]   = []
+    routine_tasks: list[RoutineTaskIn] = []
+
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
-@app.post("/auth/register", response_model=TokenResponse)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    # Validate invite code
-    is_admin_setup = req.invite_code == ADMIN_INIT_CODE
-    invite = None
-
-    if not is_admin_setup:
-        invite = db.query(FamilyInvite).filter(
-            FamilyInvite.code == req.invite_code,
-            FamilyInvite.used_by == None,
-        ).first()
-        if not invite:
-            raise HTTPException(400, "Invalid or already-used invite code")
-
-    if db.query(Member).filter(Member.username == req.username).first():
-        raise HTTPException(400, "Username already taken")
-
-    # Admin only if using admin setup code AND no admin exists yet
-    admin_exists = db.query(Member).filter(Member.role == "admin").first()
-    role = "admin" if (is_admin_setup and not admin_exists) else "member"
+@app.post("/auth/register-tenant", response_model=TokenResponse)
+def register_tenant(req: RegisterTenantRequest, db: Session = Depends(get_db)):
+    """신규 조리원 개설 + owner 계정 생성."""
+    tenant = Tenant(name=req.tenant_name)
+    db.add(tenant)
+    db.flush()  # tenant.id 확보
 
     member = Member(
+        tenant_id    = tenant.id,
         username     = req.username,
         display_name = req.display_name,
         hashed_pw    = hash_password(req.password),
-        role         = role,
-        invite_code  = req.invite_code,
+        pin_code     = req.pin_code,
+        role         = "owner",
     )
     db.add(member)
+    db.commit()
+    db.refresh(member)
+    db.refresh(tenant)
 
-    if invite:
-        invite.used_by = member.id
+    token = create_token(member.id, member.username, member.role, tenant.id)
+    return TokenResponse(
+        access_token=token, member_id=member.id, display_name=member.display_name,
+        role=member.role, tenant_id=tenant.id, tenant_name=tenant.name,
+    )
+
+
+@app.post("/auth/register", response_model=TokenResponse)
+def register_staff(req: RegisterStaffRequest, db: Session = Depends(get_db)):
+    """초대코드로 직원 가입 — 해당 코드의 tenant_id / role 을 부여받는다."""
+    invite = db.query(TenantInvite).filter(
+        TenantInvite.code == req.invite_code,
+        TenantInvite.used_by == None,
+    ).first()
+    if not invite:
+        raise HTTPException(400, "유효하지 않거나 이미 사용된 초대코드")
+    if invite.expires_at and invite.expires_at < datetime.utcnow():
+        raise HTTPException(400, "만료된 초대코드")
+
+    # username 은 테넌트 내에서만 유일하면 됨
+    dup = db.query(Member).filter(
+        Member.tenant_id == invite.tenant_id,
+        Member.username == req.username,
+    ).first()
+    if dup:
+        raise HTTPException(400, "이미 사용 중인 사용자명")
+
+    tenant = db.query(Tenant).filter(Tenant.id == invite.tenant_id).first()
+    if not tenant:
+        raise HTTPException(400, "초대코드의 조리원이 존재하지 않음")
+
+    member = Member(
+        tenant_id    = invite.tenant_id,
+        username     = req.username,
+        display_name = req.display_name,
+        hashed_pw    = hash_password(req.password),
+        pin_code     = req.pin_code,
+        role         = invite.role,
+    )
+    db.add(member)
+    db.flush()
+    invite.used_by = member.id
     db.commit()
     db.refresh(member)
 
-    token = create_token(member.id, member.username, member.role)
+    token = create_token(member.id, member.username, member.role, tenant.id)
     return TokenResponse(
-        access_token = token,
-        member_id    = member.id,
-        display_name = member.display_name,
-        role         = member.role,
+        access_token=token, member_id=member.id, display_name=member.display_name,
+        role=member.role, tenant_id=tenant.id, tenant_name=tenant.name,
     )
 
 
 @app.post("/auth/login", response_model=TokenResponse)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    member = db.query(Member).filter(Member.username == form.username).first()
-    if not member or not verify_password(form.password, member.hashed_pw):
+    """username 은 테넌트 간 중복될 수 있으므로 password 로 매칭되는 계정을 찾는다.
+
+    클라이언트가 tenant 를 명시하려면 form.client_id 에 tenant_id 를 넣을 수 있다.
+    """
+    q = db.query(Member).filter(Member.username == form.username)
+    if form.client_id:  # 선택: tenant_id 명시
+        q = q.filter(Member.tenant_id == form.client_id)
+    candidates = q.all()
+    member = next((m for m in candidates if verify_password(form.password, m.hashed_pw)), None)
+    if not member:
         raise HTTPException(status_code=401, detail="잘못된 사용자명 또는 비밀번호")
-    token = create_token(member.id, member.username, member.role)
+
+    tenant = db.query(Tenant).filter(Tenant.id == member.tenant_id).first()
+    token = create_token(member.id, member.username, member.role, member.tenant_id)
     return TokenResponse(
-        access_token = token,
-        member_id    = member.id,
-        display_name = member.display_name,
-        role         = member.role,
+        access_token=token, member_id=member.id, display_name=member.display_name,
+        role=member.role, tenant_id=member.tenant_id,
+        tenant_name=tenant.name if tenant else "",
+    )
+
+
+@app.post("/auth/pin-login", response_model=TokenResponse)
+def pin_login(req: PinLoginRequest, tid: str = Depends(get_tenant_scope),
+              db: Session = Depends(get_db)):
+    """공용 태블릿 빠른 전환 — 현재 테넌트 토큰 보유 상태에서 PIN 으로 직원 전환."""
+    member = db.query(Member).filter(
+        Member.tenant_id == tid,
+        Member.pin_code == req.pin_code,
+    ).first()
+    if not member or not req.pin_code:
+        raise HTTPException(401, "잘못된 PIN")
+
+    tenant = db.query(Tenant).filter(Tenant.id == tid).first()
+    token = create_token(member.id, member.username, member.role, tid)
+    return TokenResponse(
+        access_token=token, member_id=member.id, display_name=member.display_name,
+        role=member.role, tenant_id=tid, tenant_name=tenant.name if tenant else "",
     )
 
 
 @app.get("/auth/me")
-def me(payload: dict = Depends(get_current_member), db: Session = Depends(get_db)):
-    member = db.query(Member).filter(Member.id == payload["sub"]).first()
+def me(payload: dict = Depends(get_current_member), tid: str = Depends(get_tenant_scope),
+       db: Session = Depends(get_db)):
+    member = db.query(Member).filter(
+        Member.id == payload["sub"], Member.tenant_id == tid,
+    ).first()
     if not member:
         raise HTTPException(404, "Member not found")
     return {
-        "id":           member.id,
-        "username":     member.username,
-        "display_name": member.display_name,
-        "role":         member.role,
+        "id": member.id, "username": member.username,
+        "display_name": member.display_name, "role": member.role,
+        "tenant_id": member.tenant_id,
     }
 
 
 @app.post("/admin/invite", response_model=InviteResponse)
-def create_invite(payload: dict = Depends(require_admin), db: Session = Depends(get_db)):
+def create_invite(req: InviteRequest, payload: dict = Depends(require_admin),
+                  tid: str = Depends(get_tenant_scope), db: Session = Depends(get_db)):
+    if req.role not in ("admin", "nurse", "cleaner"):
+        raise HTTPException(400, "잘못된 역할")
     code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-    invite = FamilyInvite(code=code, created_by=payload["sub"])
+    invite = TenantInvite(code=code, tenant_id=tid, role=req.role, created_by=payload["sub"])
     db.add(invite)
     db.commit()
-    return InviteResponse(code=code)
+    return InviteResponse(code=code, role=req.role)
 
 
 @app.get("/admin/members")
-def list_members(payload: dict = Depends(require_admin), db: Session = Depends(get_db)):
+def list_members(payload: dict = Depends(require_admin),
+                 tid: str = Depends(get_tenant_scope), db: Session = Depends(get_db)):
     return [
         {"id": m.id, "username": m.username, "display_name": m.display_name,
          "role": m.role, "created_at": m.created_at.isoformat()}
-        for m in db.query(Member).all()
+        for m in db.query(Member).filter(Member.tenant_id == tid).all()
     ]
 
 
 # ── Sync ──────────────────────────────────────────────────────────────────────
 
 @app.post("/sync")
-def sync(req: SyncRequest, payload: dict = Depends(get_current_member), db: Session = Depends(get_db)):
-    """
-    Merge strategy: last-write-wins by updated_at.
-    Client sends all local changes; server applies and returns full current state.
+def sync(req: SyncRequest, tid: str = Depends(get_tenant_scope),
+         payload: dict = Depends(get_current_member), db: Session = Depends(get_db),
+         since: Optional[str] = Query(None)):
+    """오프라인 단말 변경분 업서트 (테넌트 강제 주입, last-write-wins).
+
+    반환: 테넌트 전체/델타 상태 + 임계치 위반 알림(alerts).
     """
     now = datetime.utcnow()
 
-    # --- Budgets (iterate list sent by client) ---
-    for b in req.budgets:
-        year  = b.get("year")
-        month = b.get("month")
-        if not (year and month):
-            continue
-        existing = db.query(MonthlyBudget).filter(
-            MonthlyBudget.year == year,
-            MonthlyBudget.month == month,
-        ).first()
-        if existing:
-            existing.husband_income = b.get("husband_income", existing.husband_income)
-            existing.wife_income    = b.get("wife_income",    existing.wife_income)
-            existing.husband_pocket = b.get("husband_pocket", existing.husband_pocket)
-            existing.wife_pocket    = b.get("wife_pocket",    existing.wife_pocket)
-            existing.note           = b.get("note",           existing.note)
-            existing.updated_at     = now
-        else:
-            db.add(MonthlyBudget(
-                year           = year,
-                month          = month,
-                husband_income = b.get("husband_income", 0),
-                wife_income    = b.get("wife_income",    0),
-                husband_pocket = b.get("husband_pocket", 0),
-                wife_pocket    = b.get("wife_pocket",    0),
-                note           = b.get("note",           ""),
-                updated_at     = now,
-            ))
-
-    # --- Generic upsert helper ---
-    def upsert(ModelClass, items, field_map: dict):
+    def upsert(ModelClass, items, field_map):
+        """tenant_id 를 항상 서버가 강제 주입한다(클라이언트 값 신뢰 안 함)."""
         for item in items:
-            obj = db.query(ModelClass).filter(ModelClass.id == item.id).first() if item.id else None
+            obj = None
+            if item.id:
+                obj = db.query(ModelClass).filter(
+                    ModelClass.id == item.id, ModelClass.tenant_id == tid,
+                ).first()
             if obj:
                 for attr, val in field_map(item).items():
                     setattr(obj, attr, val)
                 obj.updated_at = now
-                obj.deleted    = item.deleted
+                obj.deleted = item.deleted
             elif not item.deleted:
-                new_obj = ModelClass(updated_at=now)
+                # id 가 다른 테넌트에 이미 존재하면(글로벌 PK 충돌/탈취 시도) 무시한다.
+                if item.id and db.query(ModelClass).filter(ModelClass.id == item.id).first():
+                    continue
+                new_obj = ModelClass(tenant_id=tid, updated_at=now)
                 if item.id:
                     new_obj.id = item.id
                 for attr, val in field_map(item).items():
                     setattr(new_obj, attr, val)
                 db.add(new_obj)
 
-    upsert(FixedExpense, req.expenses, lambda i: {
-        "name": i.name, "amount": i.amount, "category": i.category,
-        "note": i.note, "is_active": i.is_active, "sort_order": i.sort_order,
+    upsert(Room, req.rooms, lambda i: {"name": i.name, "deleted": i.deleted})
+
+    upsert(Baby, req.babies, lambda i: {
+        "name": i.name, "room_id": i.room_id,
+        "birth_date": _parse_date(i.birth_date),
+        "guardian_name": i.guardian_name, "is_active": i.is_active,
         "deleted": i.deleted,
     })
 
-    upsert(Investment, req.investments, lambda i: {
-        "name": i.name, "type": i.type, "monthly_amount": i.monthly_amount,
-        "current_value": i.current_value, "note": i.note, "is_active": i.is_active,
-        "deleted": i.deleted,
+    upsert(NeonatalHealthLog, req.health_logs, lambda i: {
+        "baby_id": i.baby_id, "temperature": i.temperature,
+        "feeding_ml": i.feeding_ml, "memo": i.memo,
+        "timestamp": _parse_dt(i.timestamp) or now,
+        "worker_id": i.worker_id, "deleted": i.deleted,
     })
 
-    upsert(InstallmentSavings, req.savings, lambda i: {
-        "name": i.name, "target_amount": i.target_amount, "monthly_amount": i.monthly_amount,
-        "paid_months": i.paid_months, "total_months": i.total_months,
-        "start_date": _parse_dt(i.start_date) or datetime.utcnow(),
-        "status": i.status, "note": i.note, "deleted": i.deleted,
-    })
-
-    upsert(TodoItem, req.todos, lambda i: {
-        "title": i.title, "note": i.note, "is_completed": i.is_completed,
-        "priority": i.priority, "assignee": i.assignee, "category": i.category,
-        "due_date": _parse_dt(i.due_date), "reminder_enabled": i.reminder_enabled,
-        "reminder_date": _parse_dt(i.reminder_date),
-        "completed_at": _parse_dt(i.completed_at), "deleted": i.deleted,
-    })
-
-    upsert(Schedule, req.schedules, lambda i: {
-        "title": i.title, "date": i.date, "time": i.time,
-        "all_day": i.all_day, "category": i.category,
-        "note": i.note, "deleted": i.deleted,
+    upsert(RoutineTask, req.routine_tasks, lambda i: {
+        "room_id": i.room_id, "task_name": i.task_name,
+        "scheduled_time": _parse_dt(i.scheduled_time),
+        "completed_time": _parse_dt(i.completed_time),
+        "completed_by": i.completed_by, "deleted": i.deleted,
     })
 
     db.commit()
 
-    # Return full server state
-    return _full_state(db)
+    alerts = _detect_alerts(db, tid, req.health_logs, now)
+    state = _full_state(db, tid, _parse_dt(since))
+    state["alerts"] = alerts
+    return state
 
 
 @app.get("/sync")
-def get_state(payload: dict = Depends(get_current_member), db: Session = Depends(get_db)):
-    """Pull full current state (used on first launch / pull-to-refresh)."""
-    return _full_state(db)
+def get_state(tid: str = Depends(get_tenant_scope), db: Session = Depends(get_db),
+              since: Optional[str] = Query(None)):
+    """전체/델타 상태 pull. since(ISO) 지정 시 updated_at 이후 변경분만."""
+    return _full_state(db, tid, _parse_dt(since))
 
 
-def _full_state(db: Session) -> dict:
-    def budget_dict(b: MonthlyBudget) -> dict:
-        return {
-            "id": b.id, "year": b.year, "month": b.month,
-            "husband_income": b.husband_income, "wife_income": b.wife_income,
-            "husband_pocket": b.husband_pocket, "wife_pocket": b.wife_pocket,
-            "note": b.note, "updated_at": b.updated_at.isoformat(),
-        }
+def _detect_alerts(db: Session, tid: str, health_logs, now: datetime) -> list[dict]:
+    """체온 임계치 위반 감지. (Phase 3 에서 이 결과로 FCM 발송)"""
+    tenant = db.query(Tenant).filter(Tenant.id == tid).first()
+    threshold = tenant.temp_threshold if tenant else 37.5
+    alerts = []
+    for log in health_logs:
+        if log.deleted or log.temperature is None:
+            continue
+        if log.temperature >= threshold:
+            alerts.append({
+                "type": "high_temp", "severity": "warning",
+                "baby_id": log.baby_id, "temperature": log.temperature,
+                "threshold": threshold,
+                "message": f"체온 {log.temperature}℃ (임계치 {threshold}℃ 초과)",
+            })
+    return alerts
 
-    def expense_dict(e: FixedExpense) -> dict:
-        return {
-            "id": e.id, "name": e.name, "amount": e.amount, "category": e.category,
-            "note": e.note, "is_active": e.is_active, "sort_order": e.sort_order,
-            "created_at": e.created_at.isoformat(), "updated_at": e.updated_at.isoformat(),
-        }
 
-    def inv_dict(i: Investment) -> dict:
-        return {
-            "id": i.id, "name": i.name, "type": i.type,
-            "monthly_amount": i.monthly_amount, "current_value": i.current_value,
-            "note": i.note, "is_active": i.is_active,
-            "created_at": i.created_at.isoformat(), "updated_at": i.updated_at.isoformat(),
-        }
+def _full_state(db: Session, tid: str, since: Optional[datetime] = None) -> dict:
+    def _f(query, model):
+        if since is not None:
+            query = query.filter(model.updated_at > since)
+        else:
+            query = query.filter(model.deleted == False)
+        return query
 
-    def saving_dict(s: InstallmentSavings) -> dict:
-        return {
-            "id": s.id, "name": s.name, "target_amount": s.target_amount,
-            "monthly_amount": s.monthly_amount, "paid_months": s.paid_months,
-            "total_months": s.total_months,
-            "start_date": s.start_date.isoformat() if s.start_date else None,
-            "status": s.status, "note": s.note,
-            "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat(),
-        }
+    def room_dict(r: Room) -> dict:
+        return {"id": r.id, "name": r.name, "deleted": r.deleted,
+                "updated_at": r.updated_at.isoformat()}
 
-    def todo_dict(t: TodoItem) -> dict:
-        return {
-            "id": t.id, "title": t.title, "note": t.note,
-            "is_completed": t.is_completed, "priority": t.priority,
-            "assignee": t.assignee, "category": t.category,
-            "due_date": t.due_date.isoformat() if t.due_date else None,
-            "reminder_enabled": t.reminder_enabled,
-            "reminder_date": t.reminder_date.isoformat() if t.reminder_date else None,
-            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-            "created_at": t.created_at.isoformat(), "updated_at": t.updated_at.isoformat(),
-        }
+    def baby_dict(b: Baby) -> dict:
+        return {"id": b.id, "name": b.name, "room_id": b.room_id,
+                "birth_date": b.birth_date.isoformat() if b.birth_date else None,
+                "guardian_name": b.guardian_name, "is_active": b.is_active,
+                "deleted": b.deleted, "updated_at": b.updated_at.isoformat()}
 
-    def schedule_dict(s: Schedule) -> dict:
-        return {
-            "id": s.id, "title": s.title, "date": s.date, "time": s.time,
-            "all_day": s.all_day, "category": s.category, "note": s.note,
-            "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat(),
-        }
+    def log_dict(l: NeonatalHealthLog) -> dict:
+        return {"id": l.id, "baby_id": l.baby_id, "temperature": l.temperature,
+                "feeding_ml": l.feeding_ml, "memo": l.memo,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None,
+                "worker_id": l.worker_id, "deleted": l.deleted,
+                "updated_at": l.updated_at.isoformat()}
+
+    def task_dict(t: RoutineTask) -> dict:
+        return {"id": t.id, "room_id": t.room_id, "task_name": t.task_name,
+                "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
+                "completed_time": t.completed_time.isoformat() if t.completed_time else None,
+                "completed_by": t.completed_by, "deleted": t.deleted,
+                "updated_at": t.updated_at.isoformat()}
+
+    rooms = _f(db.query(Room).filter(Room.tenant_id == tid), Room).all()
+    babies = _f(db.query(Baby).filter(Baby.tenant_id == tid), Baby).all()
+    logs = _f(db.query(NeonatalHealthLog).filter(NeonatalHealthLog.tenant_id == tid),
+              NeonatalHealthLog).all()
+    tasks = _f(db.query(RoutineTask).filter(RoutineTask.tenant_id == tid), RoutineTask).all()
 
     return {
-        "budgets":     [budget_dict(b) for b in db.query(MonthlyBudget).all()],
-        "expenses":    [expense_dict(e) for e in db.query(FixedExpense).filter(FixedExpense.deleted == False).all()],
-        "investments": [inv_dict(i) for i in db.query(Investment).filter(Investment.deleted == False).all()],
-        "savings":     [saving_dict(s) for s in db.query(InstallmentSavings).filter(InstallmentSavings.deleted == False).all()],
-        "todos":       [todo_dict(t) for t in db.query(TodoItem).filter(TodoItem.deleted == False).all()],
-        "schedules":   [schedule_dict(s) for s in db.query(Schedule).filter(Schedule.deleted == False).all()],
-        "synced_at":   datetime.utcnow().isoformat(),
+        "rooms":         [room_dict(r) for r in rooms],
+        "babies":        [baby_dict(b) for b in babies],
+        "health_logs":   [log_dict(l) for l in logs],
+        "routine_tasks": [task_dict(t) for t in tasks],
+        "synced_at":     datetime.utcnow().isoformat(),
     }
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "살림노트"}
+    return {"status": "ok", "service": "산후조리원 관리"}
 
 
 if __name__ == "__main__":
