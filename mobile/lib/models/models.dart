@@ -1,5 +1,5 @@
-/// 도메인 모델. 로컬 sqflite 컬럼명은 서버 API(snake_case)와 동일하게 맞춰
-/// 동기화 시 변환 비용을 없앤다. is_synced 는 로컬 전용(서버로 보내지 않음).
+// 도메인 모델. 로컬 sqflite 컬럼명은 서버 API(snake_case)와 동일하게 맞춰
+// 동기화 시 변환 비용을 없앤다. is_synced 는 로컬 전용(서버로 보내지 않음).
 
 class Room {
   final String id;

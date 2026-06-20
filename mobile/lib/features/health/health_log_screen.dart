@@ -5,7 +5,6 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/config.dart';
 import '../../core/session.dart';
-import '../../data/local_repo.dart';
 import '../../data/providers.dart';
 import '../../data/sync_service.dart';
 import '../../models/models.dart';

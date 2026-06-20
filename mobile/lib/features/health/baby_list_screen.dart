@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../data/local_repo.dart';
 import '../../data/providers.dart';
 import '../../data/sync_service.dart';
 import '../../models/models.dart';
