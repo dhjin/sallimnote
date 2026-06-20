@@ -1,0 +1,20 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/models.dart';
+import 'local_repo.dart';
+
+final localRepoProvider = Provider<LocalRepo>((ref) => LocalRepo());
+
+/// 목록 새로고침 트리거. 쓰기 후 ref.invalidate(...) 로 갱신.
+final babiesProvider = FutureProvider.autoDispose<List<Baby>>(
+    (ref) => ref.read(localRepoProvider).babies());
+
+final tasksProvider = FutureProvider.autoDispose<List<RoutineTask>>(
+    (ref) => ref.read(localRepoProvider).tasks());
+
+final roomsProvider = FutureProvider.autoDispose<List<Room>>(
+    (ref) => ref.read(localRepoProvider).rooms());
+
+final logsForBabyProvider = FutureProvider.autoDispose
+    .family<List<HealthLog>, String>(
+        (ref, babyId) => ref.read(localRepoProvider).logsForBaby(babyId));
