@@ -19,6 +19,26 @@ flutter run --dart-define=API_BASE_URL=http://<백엔드주소>:30881
 > 이 환경에는 Flutter SDK 가 없어 컴파일/분석을 수행하지 못했다.
 > 최초 실행 시 `flutter analyze` 로 검증 후 진행할 것.
 
+## ⚠️ 트러블슈팅 — "네트워크 오류" / 조리원 개설 실패
+
+응답을 못 받았다는 뜻(요청이 서버에 도달 못 함). 순서대로 확인:
+
+1. **릴리스 APK 인터넷 권한 누락 (가장 흔함).**
+   Flutter 는 `INTERNET` 권한을 debug 매니페스트에만 자동 추가한다. `flutter build apk`
+   (release)는 권한이 없어 모든 네트워크 호출이 실패한다.
+   `android/app/src/main/AndroidManifest.xml` 의 `<manifest>` 바로 아래에 추가:
+   ```xml
+   <uses-permission android:name="android.permission.INTERNET"/>
+   ```
+2. **API 주소.** 기본값은 `https://sallimnote.thechurch-plus.org`. 다른 서버면:
+   ```bash
+   flutter build apk --dart-define=API_BASE_URL=https://<도메인>
+   ```
+   화면의 에러 메시지에 실제 접속 주소와 원인(connectionError/timeout 등)이 표시된다.
+3. **HTTP(평문) 주소를 쓸 경우** Android 가 기본 차단한다. 운영은 https 를 쓸 것.
+   불가피하게 http 면 `network_security_config` 설정 필요.
+4. **서버 자체 확인:** `curl -i https://<도메인>/health` 가 200 인지 먼저 점검.
+
 ## 아키텍처
 
 ```

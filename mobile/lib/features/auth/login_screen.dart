@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/config.dart';
 import '../../core/session.dart';
 import '../../data/sync_service.dart';
 
@@ -50,8 +51,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await ref.read(sessionProvider.notifier).setFromResponse(resp);
       ref.read(syncServiceProvider).syncNow();
     } on DioException catch (e) {
-      setState(() => _error = e.response?.data?['detail']?.toString() ??
-          '네트워크 오류 — 연결을 확인하세요');
+      // 서버가 응답(4xx/5xx)을 준 경우엔 detail 을, 응답 자체가 없으면
+      // (연결 실패/주소 오류/권한 없음) 원인 타입과 접속 주소를 노출해 진단을 돕는다.
+      final data = e.response?.data;
+      final serverMsg = data is Map ? data['detail']?.toString() : null;
+      setState(() => _error = serverMsg ??
+          '네트워크 오류 (${e.type.name})\n${e.message ?? ''}\n접속 주소: ${AppConfig.apiBaseUrl}');
     } catch (e) {
       setState(() => _error = '$e');
     } finally {

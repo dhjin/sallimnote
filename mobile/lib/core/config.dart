@@ -5,7 +5,7 @@ class AppConfig {
   /// 운영: NodePort(30881) 또는 인그레스 도메인으로 교체.
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.219.101:30881',
+    defaultValue: 'https://sallimnote.thechurch-plus.org',
   );
 
   /// 체온 알림 기본 임계치(서버 tenant.temp_threshold 와 동기화 전 로컬 기본값).
