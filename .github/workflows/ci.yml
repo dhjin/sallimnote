@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: 백엔드 (pytest · 테넌트 격리)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 의존성 설치
+        run: pip install -r requirements-dev.txt
+      - name: 테스트 (sqlite, PostgreSQL 불필요)
+        run: pytest -q
+
+  mobile:
+    name: 모바일 (flutter analyze)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: 플랫폼 스캐폴드 생성 (lib/ 보존)
+        run: flutter create .
+      - name: 의존성
+        run: flutter pub get
+      - name: 정적 분석
+        run: flutter analyze
