@@ -32,7 +32,12 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./dev.db")
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine       = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base.metadata.create_all(bind=engine)
+
+# sqlite(개발/테스트)에서는 편의상 자동 생성한다.
+# PostgreSQL(운영)에서는 `alembic upgrade head` 로 스키마를 관리하므로 create_all 을
+# 호출하지 않는다(마이그레이션 이력과 충돌 방지).
+if DATABASE_URL.startswith("sqlite"):
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="산후조리원 관리 API", version="2.0.0")
 app.add_middleware(
