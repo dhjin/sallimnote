@@ -57,6 +57,15 @@ jobs:
           channel: stable
       - name: 플랫폼 스캐폴드 생성
         run: flutter create .
+      - name: 인터넷 권한 보장
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q "INTERNET" "$MANIFEST"; then
+            sed -i 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET"/>|' "$MANIFEST"
+            echo "인터넷 권한 추가됨"
+          else
+            echo "인터넷 권한 이미 존재"
+          fi
       - name: 의존성
         run: flutter pub get
       - name: APK 빌드
