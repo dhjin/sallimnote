@@ -49,6 +49,20 @@ class _DiagnosticsScreenState extends ConsumerState<DiagnosticsScreen> {
     _add('앱 토큰 보유(hasToken): $hasTok, 길이=${session?.token.length ?? 0}');
     _add('─────────────');
 
+    // 0) 현재 앱 세션 토큰으로 바로 /sync (아이디 입력 불필요 — 진짜 토큰 검증)
+    final curTok = session?.token;
+    if (curTok != null && curTok.isNotEmpty) {
+      try {
+        final s0 = await dio.get('/sync',
+            options: Options(headers: {'Authorization': 'Bearer $curTok'}));
+        _add('⓪ 현재토큰 /sync(GET) → ${s0.statusCode}');
+        if (s0.statusCode != 200 && s0.data != null) _add('   ${s0.data}');
+      } catch (e) {
+        _add('⓪ 현재토큰 /sync 예외: $e');
+      }
+      _add('─────────────');
+    }
+
     // 1) health
     try {
       final h = await dio.get('/health');
