@@ -1,0 +1,51 @@
+name: Release APK
+
+# v* 태그를 푸시하면 운영 도메인으로 APK 를 빌드해
+# 공개 다운로드 가능한 GitHub Release 에 첨부한다.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-apk:
+    name: APK 빌드 + 릴리스 발행
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: 플랫폼 스캐폴드 생성
+        run: flutter create .
+      - name: 인터넷 권한 보장
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q "INTERNET" "$MANIFEST"; then
+            sed -i 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <uses-permission android:name="android.permission.INTERNET"/>|' "$MANIFEST"
+          fi
+      - name: 의존성
+        run: flutter pub get
+      - name: APK 빌드 (운영 도메인 주입)
+        run: |
+          flutter build apk \
+            --dart-define=API_BASE_URL=https://sallimnote.thechurch-plus.org
+          cp build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/sallimnote-${{ github.ref_name }}.apk
+      - name: 릴리스 생성 + APK 첨부
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: mobile/build/app/outputs/flutter-apk/sallimnote-${{ github.ref_name }}.apk
