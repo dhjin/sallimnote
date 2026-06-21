@@ -52,7 +52,8 @@ class SessionNotifier extends StateNotifier<Session?> {
   Future<void> restore() async {
     final sp = await SharedPreferences.getInstance();
     final token = sp.getString(_kToken);
-    if (token == null) return;
+    // 빈/누락 토큰은 세션으로 인정하지 않는다(로그인 화면으로 유도).
+    if (token == null || token.isEmpty) return;
     final s = Session(
       token: token,
       memberId: sp.getString(_kMember) ?? '',
@@ -82,6 +83,10 @@ class SessionNotifier extends StateNotifier<Session?> {
   /// 로그인/개설 성공 응답 적용.
   Future<void> setFromResponse(Map<String, dynamic> resp) async {
     final s = Session.fromTokenResponse(resp);
+    // 토큰이 비어 있으면(비정상 응답) 빈 세션을 저장하지 않고 실패 처리.
+    if (s.token.isEmpty) {
+      throw Exception('로그인 응답에 토큰이 없습니다');
+    }
     _apply(s);
     await _persist(s);
   }
