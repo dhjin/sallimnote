@@ -41,7 +41,16 @@ void main() {
     final pending = RoutineTask(id: 't1', taskName: '소독');
     expect(pending.isCompleted, false);
 
-    final done = pending.copyWith(completedTime: '2026-06-20T11:00:00.000');
+    final done = RoutineTask(
+        id: 't1', taskName: '소독', completedTime: '2026-06-20T11:00:00.000');
     expect(done.isCompleted, true);
+  });
+
+  test('RoutineDefinition 현재 주기 계산 (4시간 주기)', () {
+    final def = RoutineDefinition(
+        id: 'd1', taskName: '환기', intervalHours: 4, anchorHour: 0);
+    final ws = def.currentWindowStart(DateTime(2026, 6, 21, 9, 30));
+    // anchor 0시 기준 4시간 주기 → 09:30 이 속한 주기 시작은 08:00
+    expect(ws, DateTime(2026, 6, 21, 8));
   });
 }
