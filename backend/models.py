@@ -125,3 +125,18 @@ class RoutineTask(Base):
     created_at     = Column(DateTime, default=_now)
     updated_at     = Column(DateTime, default=_now, onupdate=_now)
     deleted        = Column(Boolean, default=False)
+
+
+class Notice(Base):
+    """조리원 공지. owner/admin 이 작성, 전 직원이 조회."""
+    __tablename__ = "notices"
+
+    id         = Column(String, primary_key=True, default=_uuid)
+    tenant_id  = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    title      = Column(String, nullable=False)
+    body       = Column(Text, default="")
+    pinned     = Column(Boolean, default=False)   # 상단 고정
+    created_by = Column(String, ForeignKey("members.id"), nullable=True)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+    deleted    = Column(Boolean, default=False)

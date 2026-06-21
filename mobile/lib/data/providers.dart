@@ -15,6 +15,9 @@ final tasksProvider = FutureProvider.autoDispose<List<RoutineTask>>(
 final roomsProvider = FutureProvider.autoDispose<List<Room>>(
     (ref) => ref.read(localRepoProvider).rooms());
 
+final noticesProvider = FutureProvider.autoDispose<List<Notice>>(
+    (ref) => ref.read(localRepoProvider).notices());
+
 final logsForBabyProvider = FutureProvider.autoDispose
     .family<List<HealthLog>, String>(
         (ref, babyId) => ref.read(localRepoProvider).logsForBaby(babyId));

@@ -75,6 +75,26 @@ class LocalRepo {
     );
   }
 
+  // ── Notices ──────────────────────────────────────────────────────────
+  Future<List<Notice>> notices() async {
+    final db = await _db;
+    final rows = await db.query('notices',
+        where: 'deleted = 0', orderBy: 'pinned DESC, created_at DESC');
+    return rows.map(Notice.fromMap).toList();
+  }
+
+  Future<void> upsertNotice(Notice n) async {
+    final db = await _db;
+    final map = n.toMap()..['is_synced'] = 0;
+    await db.insert('notices', map, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteNotice(Notice n) async {
+    final db = await _db;
+    await db.update('notices', {'deleted': 1, 'is_synced': 0},
+        where: 'id = ?', whereArgs: [n.id]);
+  }
+
   // ── Rooms ────────────────────────────────────────────────────────────
   Future<List<Room>> rooms() async {
     final db = await _db;

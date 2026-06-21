@@ -124,6 +124,46 @@ def test_pin_login_switches_within_tenant(client):
     assert r.json()["tenant_id"] == a["tenant_id"]
 
 
+def test_notice_admin_writes_staff_reads(client):
+    a = _register_tenant(client, "조리원A", "ownerA")
+    # owner 가 공지 작성
+    r = client.post("/sync", headers=_auth(a["access_token"]), json={
+        "notices": [{"id": "n1", "title": "오늘 소독 일정", "body": "14시 전체 소독",
+                     "pinned": True}],
+    })
+    assert r.status_code == 200, r.text
+    assert {n["id"] for n in r.json()["notices"]} == {"n1"}
+
+    # 직원(nurse)도 공지를 조회할 수 있어야 한다
+    inv = client.post("/admin/invite", headers=_auth(a["access_token"]),
+                      json={"role": "nurse"}).json()
+    nurse = client.post("/auth/register", json={
+        "username": "nurse1", "display_name": "간호사", "password": "pw12345",
+        "invite_code": inv["code"],
+    }).json()
+    state = client.get("/sync", headers=_auth(nurse["access_token"])).json()
+    n = next(x for x in state["notices"] if x["id"] == "n1")
+    assert n["title"] == "오늘 소독 일정"
+    assert n["pinned"] is True
+
+
+def test_notice_write_blocked_for_non_admin(client):
+    a = _register_tenant(client, "조리원A", "ownerA")
+    inv = client.post("/admin/invite", headers=_auth(a["access_token"]),
+                      json={"role": "nurse"}).json()
+    nurse = client.post("/auth/register", json={
+        "username": "nurse1", "display_name": "간호사", "password": "pw12345",
+        "invite_code": inv["code"],
+    }).json()
+
+    # 직원이 공지 작성 시도 → 서버가 무시(반영 안 됨)
+    r = client.post("/sync", headers=_auth(nurse["access_token"]), json={
+        "notices": [{"id": "n-bad", "title": "권한없는공지"}],
+    })
+    assert r.status_code == 200
+    assert r.json()["notices"] == []
+
+
 def test_staff_invite_scopes_to_inviter_tenant(client):
     a = _register_tenant(client, "조리원A", "ownerA")
     b = _register_tenant(client, "조리원B", "ownerB")
