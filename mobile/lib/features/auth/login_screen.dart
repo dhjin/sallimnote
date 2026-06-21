@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/config.dart';
 import '../../core/session.dart';
 import '../../data/sync_service.dart';
+import '../diag/diagnostics_screen.dart';
 
 /// 로그인 + 신규 조리원 개설. 공용 태블릿은 한 번 로그인하면 PIN 으로 전환.
 class LoginScreen extends ConsumerStatefulWidget {
@@ -107,6 +108,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     _error = null;
                   }),
                   child: Text(_registerMode ? '이미 계정이 있어요 — 로그인' : '신규 조리원 개설'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const DiagnosticsScreen())),
+                  child: const Text('🔧 연결 진단'),
                 ),
               ],
             ),
