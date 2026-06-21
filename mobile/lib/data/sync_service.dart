@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
@@ -24,6 +25,9 @@ class SyncService {
   /// 마지막 알림(체온 임계치 등) — UI 가 ValueListenableBuilder 로 구독.
   final alerts = ValueNotifier<List<Map<String, dynamic>>>([]);
 
+  /// 마지막 동기화 오류 메시지 (null = 정상). UI 가 표시.
+  final lastError = ValueNotifier<String?>(null);
+
   void startAutoSync() {
     _connSub?.cancel();
     _connSub = Connectivity().onConnectivityChanged.listen((results) {
@@ -35,6 +39,7 @@ class SyncService {
   void dispose() {
     _connSub?.cancel();
     alerts.dispose();
+    lastError.dispose();
   }
 
   Future<bool> _isOnline() async {
@@ -42,9 +47,24 @@ class SyncService {
     return r.any((x) => x != ConnectivityResult.none);
   }
 
-  Future<void> syncNow() async {
-    if (_running) return;
-    if (!await _isOnline()) return;
+  String _describe(Object e) {
+    if (e is DioException) {
+      final code = e.response?.statusCode;
+      final data = e.response?.data;
+      final detail = data is Map ? data['detail']?.toString() : null;
+      if (code != null) return '서버 오류 $code${detail != null ? ' · $detail' : ''}';
+      return '네트워크 오류 (${e.type.name})';
+    }
+    return e.toString();
+  }
+
+  /// 동기화 실행. 성공 시 true. 실패 사유는 lastError 에 저장.
+  Future<bool> syncNow() async {
+    if (_running) return false;
+    if (!await _isOnline()) {
+      lastError.value = '오프라인 — 네트워크 연결 없음';
+      return false;
+    }
     _running = true;
     try {
       final db = await LocalDb.instance.database;
@@ -54,8 +74,12 @@ class SyncService {
       await _markSynced(db);
       final a = (resp['alerts'] as List?) ?? [];
       alerts.value = a.map((e) => Map<String, dynamic>.from(e)).toList();
-    } catch (_) {
-      // 오프라인/일시 오류 — 다음 기회에 재시도(레코드는 is_synced=0 유지).
+      lastError.value = null;
+      return true;
+    } catch (e) {
+      // 실패 시 레코드는 is_synced=0 유지(다음 기회 재시도). 사유는 표시.
+      lastError.value = _describe(e);
+      return false;
     } finally {
       _running = false;
     }

@@ -25,10 +25,12 @@ class DashboardScreen extends ConsumerWidget {
           IconButton(
             tooltip: '동기화',
             onPressed: () async {
-              await sync.syncNow();
+              final ok = await sync.syncNow();
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('동기화 완료')));
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(ok ? '동기화 완료' : '동기화 실패: ${sync.lastError.value ?? ''}'),
+                  backgroundColor: ok ? null : Colors.red,
+                ));
               }
             },
             icon: const Icon(Icons.sync),
@@ -43,6 +45,7 @@ class DashboardScreen extends ConsumerWidget {
       body: Column(
         children: [
           _AlertBanner(notifier: sync.alerts),
+          _SyncErrorBanner(notifier: sync.lastError),
           _CurrentWorkerBar(session: session),
           Expanded(
             child: GridView.count(
@@ -132,6 +135,30 @@ Future<void> _showPinSwitch(BuildContext context, WidgetRef ref) async {
     ),
   );
   pin.dispose();
+}
+
+class _SyncErrorBanner extends StatelessWidget {
+  const _SyncErrorBanner({required this.notifier});
+  final ValueNotifier<String?> notifier;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: notifier,
+      builder: (context, err, _) {
+        if (err == null) return const SizedBox.shrink();
+        return Material(
+          color: Colors.orange.shade50,
+          child: ListTile(
+            dense: true,
+            leading: const Icon(Icons.cloud_off, color: Colors.orange),
+            title: Text('동기화 안 됨 · $err',
+                style: const TextStyle(color: Colors.deepOrange)),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _CurrentWorkerBar extends StatelessWidget {
