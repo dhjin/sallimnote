@@ -126,6 +126,7 @@ class SyncService {
           'feeding_ml': m['feeding_ml'], 'stool_count': m['stool_count'],
           'memo': m['memo'] ?? '',
           'timestamp': m['timestamp'], 'worker_id': m['worker_id'],
+          'worker_name': m['worker_name'],
           'deleted': b(m['deleted']) ? 1 : 0,
         };
       case 'routine_tasks':

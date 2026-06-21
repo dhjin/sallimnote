@@ -14,7 +14,7 @@ class LocalDb {
     if (_db != null) return _db!;
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, 'postpartum_care.db');
-    _db = await openDatabase(path, version: 3,
+    _db = await openDatabase(path, version: 4,
         onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _db!;
   }
@@ -28,6 +28,9 @@ class LocalDb {
       await db.execute('ALTER TABLE neonatal_health_log ADD COLUMN stool_count INTEGER');
       await db.execute('ALTER TABLE routine_tasks ADD COLUMN definition_id TEXT');
       await db.execute('ALTER TABLE routine_tasks ADD COLUMN completed_by_name TEXT');
+    }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE neonatal_health_log ADD COLUMN worker_name TEXT');
     }
   }
 
@@ -86,6 +89,7 @@ class LocalDb {
         memo TEXT DEFAULT '',
         timestamp TEXT,
         worker_id TEXT,
+        worker_name TEXT,
         deleted INTEGER DEFAULT 0,
         is_synced INTEGER DEFAULT 0
       )''');

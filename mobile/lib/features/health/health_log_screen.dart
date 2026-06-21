@@ -47,8 +47,9 @@ class HealthLogScreen extends ConsumerWidget {
                 ].join('  ·  ')),
                 subtitle: Text([
                   if (ts != null) fmt.format(ts),
+                  if ((l.workerName ?? '').isNotEmpty) '작성자 ${l.workerName}',
                   if (l.memo.isNotEmpty) l.memo,
-                ].join('  ')),
+                ].join('  ·  ')),
                 trailing: l.isSynced == 0
                     ? const Icon(Icons.cloud_off, size: 18, color: Colors.grey)
                     : const Icon(Icons.cloud_done, size: 18, color: Colors.green),
@@ -115,6 +116,7 @@ class HealthLogScreen extends ConsumerWidget {
             memo: memo.text.trim(),
             timestamp: DateTime.now().toIso8601String(),
             workerId: session?.memberId,
+            workerName: session?.displayName,
           ));
       ref.invalidate(logsForBabyProvider(baby.id));
       ref.read(syncServiceProvider).syncNow();

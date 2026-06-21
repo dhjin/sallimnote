@@ -107,6 +107,7 @@ class NeonatalHealthLog(Base):
     memo        = Column(Text, default="")
     timestamp   = Column(DateTime, default=_now)
     worker_id   = Column(String, ForeignKey("members.id"), nullable=True)
+    worker_name = Column(String, nullable=True)   # 작성자 이름 스냅샷(표시용)
     created_at  = Column(DateTime, default=_now)
     updated_at  = Column(DateTime, default=_now, onupdate=_now)
     deleted     = Column(Boolean, default=False)
@@ -120,7 +121,7 @@ class RoutineTask(Base):
 
     id                = Column(String, primary_key=True, default=_uuid)
     tenant_id         = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
-    definition_id     = Column(String, ForeignKey("routine_definitions.id"), nullable=True, index=True)
+    definition_id     = Column(String, nullable=True, index=True)  # 논리적 참조(앱 레벨)
     room_id           = Column(String, ForeignKey("rooms.id"), nullable=True)
     task_name         = Column(String, nullable=False)
     scheduled_time    = Column(DateTime, nullable=True)   # 해당 주기의 예정 시각

@@ -91,6 +91,7 @@ class HealthLog {
   final String memo;
   final String timestamp; // ISO8601
   final String? workerId;
+  final String? workerName; // 작성자 이름(표시용)
   final bool deleted;
   final int isSynced;
 
@@ -103,6 +104,7 @@ class HealthLog {
     this.memo = '',
     required this.timestamp,
     this.workerId,
+    this.workerName,
     this.deleted = false,
     this.isSynced = 0,
   });
@@ -116,6 +118,7 @@ class HealthLog {
         'memo': memo,
         'timestamp': timestamp,
         'worker_id': workerId,
+        'worker_name': workerName,
         'deleted': deleted ? 1 : 0,
         'is_synced': isSynced,
       };
@@ -129,6 +132,7 @@ class HealthLog {
         memo: m['memo'] as String? ?? '',
         timestamp: m['timestamp'] as String? ?? '',
         workerId: m['worker_id'] as String?,
+        workerName: m['worker_name'] as String?,
         deleted: (m['deleted'] ?? 0) == 1,
         isSynced: (m['is_synced'] ?? 0) as int,
       );
@@ -142,6 +146,7 @@ class HealthLog {
         'memo': memo,
         'timestamp': timestamp,
         'worker_id': workerId,
+        'worker_name': workerName,
         'deleted': deleted,
       };
 }

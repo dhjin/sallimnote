@@ -191,11 +191,13 @@ def test_health_log_includes_stool_count(client):
     r = client.post("/sync", headers=_auth(a["access_token"]), json={
         "babies": [{"id": "baby-a", "name": "아기A"}],
         "health_logs": [{"id": "log1", "baby_id": "baby-a", "temperature": 36.7,
-                         "feeding_ml": 60, "stool_count": 2}],
+                         "feeding_ml": 60, "stool_count": 2,
+                         "worker_id": a["member_id"], "worker_name": "원장"}],
     })
     assert r.status_code == 200, r.text
     log = next(x for x in r.json()["health_logs"] if x["id"] == "log1")
     assert log["stool_count"] == 2
+    assert log["worker_name"] == "원장"
 
 
 def test_staff_invite_scopes_to_inviter_tenant(client):

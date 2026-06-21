@@ -142,6 +142,7 @@ class HealthLogIn(BaseModel):
     memo:        str = ""
     timestamp:   Optional[str] = None
     worker_id:   Optional[str] = None
+    worker_name: Optional[str] = None
     deleted:     bool = False
 
 
@@ -388,7 +389,7 @@ def sync(req: SyncRequest, tid: str = Depends(get_tenant_scope),
         "baby_id": i.baby_id, "temperature": i.temperature,
         "feeding_ml": i.feeding_ml, "stool_count": i.stool_count, "memo": i.memo,
         "timestamp": _parse_dt(i.timestamp) or now,
-        "worker_id": i.worker_id, "deleted": i.deleted,
+        "worker_id": i.worker_id, "worker_name": i.worker_name, "deleted": i.deleted,
     })
 
     upsert(RoutineDefinition, req.routine_definitions, lambda i: {
@@ -467,8 +468,8 @@ def _full_state(db: Session, tid: str, since: Optional[datetime] = None) -> dict
         return {"id": l.id, "baby_id": l.baby_id, "temperature": l.temperature,
                 "feeding_ml": l.feeding_ml, "stool_count": l.stool_count, "memo": l.memo,
                 "timestamp": l.timestamp.isoformat() if l.timestamp else None,
-                "worker_id": l.worker_id, "deleted": l.deleted,
-                "updated_at": l.updated_at.isoformat()}
+                "worker_id": l.worker_id, "worker_name": l.worker_name,
+                "deleted": l.deleted, "updated_at": l.updated_at.isoformat()}
 
     def task_dict(t: RoutineTask) -> dict:
         return {"id": t.id, "definition_id": t.definition_id, "room_id": t.room_id,
