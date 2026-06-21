@@ -74,13 +74,14 @@ class SyncService {
           await un('neonatal_health_log', (r) => HealthLog.fromMap(r).toSyncJson()),
       'routine_tasks':
           await un('routine_tasks', (r) => RoutineTask.fromMap(r).toSyncJson()),
+      'notices': await un('notices', (r) => Notice.fromMap(r).toSyncJson()),
     };
   }
 
   /// 업로드 시도한 미동기화 행을 is_synced=1 로 표시.
   /// (서버가 last-write-wins 로 수용했으므로 안전. 충돌은 다음 pull 에서 정정.)
   Future<void> _markSynced(Database db) async {
-    for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks']) {
+    for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks', 'notices']) {
       await db.update(t, {'is_synced': 1}, where: 'is_synced = 0');
     }
   }
@@ -100,6 +101,7 @@ class SyncService {
       await merge('babies', resp['babies'] as List?);
       await merge('neonatal_health_log', resp['health_logs'] as List?);
       await merge('routine_tasks', resp['routine_tasks'] as List?);
+      await merge('notices', resp['notices'] as List?);
     });
   }
 
@@ -126,6 +128,12 @@ class SyncService {
           'id': m['id'], 'room_id': m['room_id'], 'task_name': m['task_name'],
           'scheduled_time': m['scheduled_time'], 'completed_time': m['completed_time'],
           'completed_by': m['completed_by'], 'deleted': b(m['deleted']) ? 1 : 0,
+        };
+      case 'notices':
+        return {
+          'id': m['id'], 'title': m['title'], 'body': m['body'] ?? '',
+          'pinned': b(m['pinned']) ? 1 : 0, 'created_by': m['created_by'],
+          'created_at': m['created_at'], 'deleted': b(m['deleted']) ? 1 : 0,
         };
       default:
         return m;

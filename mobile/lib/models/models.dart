@@ -141,6 +141,59 @@ class HealthLog {
       };
 }
 
+class Notice {
+  final String id;
+  final String title;
+  final String body;
+  final bool pinned;
+  final String? createdBy;
+  final String? createdAt; // ISO8601
+  final bool deleted;
+  final int isSynced;
+
+  Notice({
+    required this.id,
+    required this.title,
+    this.body = '',
+    this.pinned = false,
+    this.createdBy,
+    this.createdAt,
+    this.deleted = false,
+    this.isSynced = 0,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'title': title,
+        'body': body,
+        'pinned': pinned ? 1 : 0,
+        'created_by': createdBy,
+        'created_at': createdAt,
+        'deleted': deleted ? 1 : 0,
+        'is_synced': isSynced,
+      };
+
+  factory Notice.fromMap(Map<String, dynamic> m) => Notice(
+        id: m['id'] as String,
+        title: m['title'] as String? ?? '',
+        body: m['body'] as String? ?? '',
+        pinned: (m['pinned'] ?? 0) == 1,
+        createdBy: m['created_by'] as String?,
+        createdAt: m['created_at'] as String?,
+        deleted: (m['deleted'] ?? 0) == 1,
+        isSynced: (m['is_synced'] ?? 0) as int,
+      );
+
+  Map<String, dynamic> toSyncJson() => {
+        'id': id,
+        'title': title,
+        'body': body,
+        'pinned': pinned,
+        'created_by': createdBy,
+        'deleted': deleted,
+      };
+}
+
 class RoutineTask {
   final String id;
   final String? roomId;

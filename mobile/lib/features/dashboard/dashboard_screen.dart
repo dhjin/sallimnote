@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/session.dart';
 import '../../data/sync_service.dart';
 import '../health/baby_list_screen.dart';
+import '../notice/notice_screen.dart';
 import '../routine/routine_screen.dart';
 
 /// 바둑판 대시보드 — 큰 버튼 위주의 공용 태블릿 메인 화면.
@@ -63,6 +64,13 @@ class DashboardScreen extends ConsumerWidget {
                   color: const Color(0xFF2EB872),
                   onTap: () => Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const RoutineScreen())),
+                ),
+                _Tile(
+                  icon: Icons.campaign,
+                  label: '조리원 공지',
+                  color: const Color(0xFF8E5BFF),
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const NoticeScreen())),
                 ),
                 _Tile(
                   icon: Icons.switch_account,

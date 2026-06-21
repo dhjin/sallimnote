@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from models import (
     Base, Tenant, Member, TenantInvite,
-    Room, Baby, NeonatalHealthLog, RoutineTask,
+    Room, Baby, NeonatalHealthLog, RoutineTask, Notice,
 )
 from auth import (
     hash_password, verify_password, create_token,
@@ -154,12 +154,22 @@ class RoutineTaskIn(BaseModel):
     deleted:        bool = False
 
 
+class NoticeIn(BaseModel):
+    id:         Optional[str] = None
+    title:      str
+    body:       str  = ""
+    pinned:     bool = False
+    created_by: Optional[str] = None
+    deleted:    bool = False
+
+
 class SyncRequest(BaseModel):
     """오프라인 단말의 로컬 변경분 업로드. 서버는 테넌트 상태 반환."""
     rooms:         list[RoomIn]        = []
     babies:        list[BabyIn]        = []
     health_logs:   list[HealthLogIn]   = []
     routine_tasks: list[RoutineTaskIn] = []
+    notices:       list[NoticeIn]      = []
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -374,6 +384,13 @@ def sync(req: SyncRequest, tid: str = Depends(get_tenant_scope),
         "completed_by": i.completed_by, "deleted": i.deleted,
     })
 
+    # 공지는 owner/admin 만 작성/수정 가능 (직원이 보낸 공지 변경분은 무시).
+    if payload.get("role") in ("owner", "admin"):
+        upsert(Notice, req.notices, lambda i: {
+            "title": i.title, "body": i.body, "pinned": i.pinned,
+            "created_by": i.created_by or payload.get("sub"), "deleted": i.deleted,
+        })
+
     db.commit()
 
     alerts = _detect_alerts(db, tid, req.health_logs, now)
@@ -439,17 +456,25 @@ def _full_state(db: Session, tid: str, since: Optional[datetime] = None) -> dict
                 "completed_by": t.completed_by, "deleted": t.deleted,
                 "updated_at": t.updated_at.isoformat()}
 
+    def notice_dict(n: Notice) -> dict:
+        return {"id": n.id, "title": n.title, "body": n.body, "pinned": n.pinned,
+                "created_by": n.created_by, "deleted": n.deleted,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+                "updated_at": n.updated_at.isoformat()}
+
     rooms = _f(db.query(Room).filter(Room.tenant_id == tid), Room).all()
     babies = _f(db.query(Baby).filter(Baby.tenant_id == tid), Baby).all()
     logs = _f(db.query(NeonatalHealthLog).filter(NeonatalHealthLog.tenant_id == tid),
               NeonatalHealthLog).all()
     tasks = _f(db.query(RoutineTask).filter(RoutineTask.tenant_id == tid), RoutineTask).all()
+    notices = _f(db.query(Notice).filter(Notice.tenant_id == tid), Notice).all()
 
     return {
         "rooms":         [room_dict(r) for r in rooms],
         "babies":        [baby_dict(b) for b in babies],
         "health_logs":   [log_dict(l) for l in logs],
         "routine_tasks": [task_dict(t) for t in tasks],
+        "notices":       [notice_dict(n) for n in notices],
         "synced_at":     datetime.utcnow().isoformat(),
     }
 

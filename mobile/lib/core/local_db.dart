@@ -14,9 +14,28 @@ class LocalDb {
     if (_db != null) return _db!;
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, 'postpartum_care.db');
-    _db = await openDatabase(path, version: 1, onCreate: _onCreate);
+    _db = await openDatabase(path, version: 2,
+        onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _db!;
   }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(_noticesDdl);
+    }
+  }
+
+  static const String _noticesDdl = '''
+      CREATE TABLE notices (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT DEFAULT '',
+        pinned INTEGER DEFAULT 0,
+        created_by TEXT,
+        created_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        is_synced INTEGER DEFAULT 0
+      )''';
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
@@ -64,6 +83,8 @@ class LocalDb {
         is_synced INTEGER DEFAULT 0
       )''');
 
+    await db.execute(_noticesDdl);
+
     await db.execute('CREATE INDEX idx_log_baby ON neonatal_health_log(baby_id)');
     await db.execute('CREATE INDEX idx_log_unsynced ON neonatal_health_log(is_synced)');
     await db.execute('CREATE INDEX idx_task_unsynced ON routine_tasks(is_synced)');
@@ -73,7 +94,7 @@ class LocalDb {
   Future<void> clearAll() async {
     final db = await database;
     await db.transaction((txn) async {
-      for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks']) {
+      for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks', 'notices']) {
         await txn.delete(t);
       }
     });
