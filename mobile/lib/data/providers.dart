@@ -12,6 +12,11 @@ final babiesProvider = FutureProvider.autoDispose<List<Baby>>(
 final tasksProvider = FutureProvider.autoDispose<List<RoutineTask>>(
     (ref) => ref.read(localRepoProvider).tasks());
 
+/// 활성 루틴 정의 + 현재 주기 완료 상태.
+final routineStatusProvider = FutureProvider.autoDispose<
+    List<({RoutineDefinition def, RoutineTask? occ})>>(
+  (ref) => ref.read(localRepoProvider).routineStatuses());
+
 final roomsProvider = FutureProvider.autoDispose<List<Room>>(
     (ref) => ref.read(localRepoProvider).rooms());
 

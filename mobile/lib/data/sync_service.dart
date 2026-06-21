@@ -74,6 +74,8 @@ class SyncService {
           await un('neonatal_health_log', (r) => HealthLog.fromMap(r).toSyncJson()),
       'routine_tasks':
           await un('routine_tasks', (r) => RoutineTask.fromMap(r).toSyncJson()),
+      'routine_definitions': await un(
+          'routine_definitions', (r) => RoutineDefinition.fromMap(r).toSyncJson()),
       'notices': await un('notices', (r) => Notice.fromMap(r).toSyncJson()),
     };
   }
@@ -81,7 +83,8 @@ class SyncService {
   /// 업로드 시도한 미동기화 행을 is_synced=1 로 표시.
   /// (서버가 last-write-wins 로 수용했으므로 안전. 충돌은 다음 pull 에서 정정.)
   Future<void> _markSynced(Database db) async {
-    for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks', 'notices']) {
+    for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks',
+                     'routine_definitions', 'notices']) {
       await db.update(t, {'is_synced': 1}, where: 'is_synced = 0');
     }
   }
@@ -101,6 +104,7 @@ class SyncService {
       await merge('babies', resp['babies'] as List?);
       await merge('neonatal_health_log', resp['health_logs'] as List?);
       await merge('routine_tasks', resp['routine_tasks'] as List?);
+      await merge('routine_definitions', resp['routine_definitions'] as List?);
       await merge('notices', resp['notices'] as List?);
     });
   }
@@ -119,15 +123,24 @@ class SyncService {
       case 'neonatal_health_log':
         return {
           'id': m['id'], 'baby_id': m['baby_id'], 'temperature': m['temperature'],
-          'feeding_ml': m['feeding_ml'], 'memo': m['memo'] ?? '',
+          'feeding_ml': m['feeding_ml'], 'stool_count': m['stool_count'],
+          'memo': m['memo'] ?? '',
           'timestamp': m['timestamp'], 'worker_id': m['worker_id'],
           'deleted': b(m['deleted']) ? 1 : 0,
         };
       case 'routine_tasks':
         return {
-          'id': m['id'], 'room_id': m['room_id'], 'task_name': m['task_name'],
+          'id': m['id'], 'definition_id': m['definition_id'], 'room_id': m['room_id'],
+          'task_name': m['task_name'],
           'scheduled_time': m['scheduled_time'], 'completed_time': m['completed_time'],
-          'completed_by': m['completed_by'], 'deleted': b(m['deleted']) ? 1 : 0,
+          'completed_by': m['completed_by'], 'completed_by_name': m['completed_by_name'],
+          'deleted': b(m['deleted']) ? 1 : 0,
+        };
+      case 'routine_definitions':
+        return {
+          'id': m['id'], 'room_id': m['room_id'], 'task_name': m['task_name'],
+          'interval_hours': m['interval_hours'] ?? 8, 'anchor_hour': m['anchor_hour'] ?? 0,
+          'is_active': b(m['is_active']) ? 1 : 0, 'deleted': b(m['deleted']) ? 1 : 0,
         };
       case 'notices':
         return {

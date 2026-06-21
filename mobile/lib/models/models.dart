@@ -87,6 +87,7 @@ class HealthLog {
   final String babyId;
   final double? temperature;
   final int? feedingMl;
+  final int? stoolCount; // 배변 횟수
   final String memo;
   final String timestamp; // ISO8601
   final String? workerId;
@@ -98,6 +99,7 @@ class HealthLog {
     required this.babyId,
     this.temperature,
     this.feedingMl,
+    this.stoolCount,
     this.memo = '',
     required this.timestamp,
     this.workerId,
@@ -110,6 +112,7 @@ class HealthLog {
         'baby_id': babyId,
         'temperature': temperature,
         'feeding_ml': feedingMl,
+        'stool_count': stoolCount,
         'memo': memo,
         'timestamp': timestamp,
         'worker_id': workerId,
@@ -122,6 +125,7 @@ class HealthLog {
         babyId: m['baby_id'] as String,
         temperature: (m['temperature'] as num?)?.toDouble(),
         feedingMl: m['feeding_ml'] as int?,
+        stoolCount: m['stool_count'] as int?,
         memo: m['memo'] as String? ?? '',
         timestamp: m['timestamp'] as String? ?? '',
         workerId: m['worker_id'] as String?,
@@ -134,6 +138,7 @@ class HealthLog {
         'baby_id': babyId,
         'temperature': temperature,
         'feeding_ml': feedingMl,
+        'stool_count': stoolCount,
         'memo': memo,
         'timestamp': timestamp,
         'worker_id': workerId,
@@ -194,59 +199,60 @@ class Notice {
       };
 }
 
-class RoutineTask {
+/// 루틴 설정 — N시간 주기로 반복되는 업무 정의.
+class RoutineDefinition {
   final String id;
   final String? roomId;
   final String taskName;
-  final String? scheduledTime; // ISO8601
-  final String? completedTime; // ISO8601, null = 미완료
-  final String? completedBy;
+  final int intervalHours; // 몇 시간 주기
+  final int anchorHour;    // 하루 중 기준 시각(0-23)
+  final bool isActive;
   final bool deleted;
   final int isSynced;
 
-  RoutineTask({
+  RoutineDefinition({
     required this.id,
     this.roomId,
     required this.taskName,
-    this.scheduledTime,
-    this.completedTime,
-    this.completedBy,
+    this.intervalHours = 8,
+    this.anchorHour = 0,
+    this.isActive = true,
     this.deleted = false,
     this.isSynced = 0,
   });
 
-  bool get isCompleted => completedTime != null;
+  int get _h => intervalHours <= 0 ? 1 : intervalHours;
 
-  RoutineTask copyWith({String? completedTime, String? completedBy, int? isSynced}) =>
-      RoutineTask(
-        id: id,
-        roomId: roomId,
-        taskName: taskName,
-        scheduledTime: scheduledTime,
-        completedTime: completedTime ?? this.completedTime,
-        completedBy: completedBy ?? this.completedBy,
-        deleted: deleted,
-        isSynced: isSynced ?? this.isSynced,
-      );
+  /// 현재 주기의 시작 시각(예정 시각).
+  DateTime currentWindowStart([DateTime? now]) {
+    now ??= DateTime.now();
+    var anchor = DateTime(now.year, now.month, now.day, anchorHour);
+    if (now.isBefore(anchor)) anchor = anchor.subtract(const Duration(days: 1));
+    final cycles = now.difference(anchor).inMinutes ~/ (_h * 60);
+    return anchor.add(Duration(hours: _h * cycles));
+  }
+
+  DateTime nextWindowStart([DateTime? now]) =>
+      currentWindowStart(now).add(Duration(hours: _h));
 
   Map<String, dynamic> toMap() => {
         'id': id,
         'room_id': roomId,
         'task_name': taskName,
-        'scheduled_time': scheduledTime,
-        'completed_time': completedTime,
-        'completed_by': completedBy,
+        'interval_hours': intervalHours,
+        'anchor_hour': anchorHour,
+        'is_active': isActive ? 1 : 0,
         'deleted': deleted ? 1 : 0,
         'is_synced': isSynced,
       };
 
-  factory RoutineTask.fromMap(Map<String, dynamic> m) => RoutineTask(
+  factory RoutineDefinition.fromMap(Map<String, dynamic> m) => RoutineDefinition(
         id: m['id'] as String,
         roomId: m['room_id'] as String?,
         taskName: m['task_name'] as String? ?? '',
-        scheduledTime: m['scheduled_time'] as String?,
-        completedTime: m['completed_time'] as String?,
-        completedBy: m['completed_by'] as String?,
+        intervalHours: (m['interval_hours'] ?? 8) as int,
+        anchorHour: (m['anchor_hour'] ?? 0) as int,
+        isActive: (m['is_active'] ?? 1) == 1,
         deleted: (m['deleted'] ?? 0) == 1,
         isSynced: (m['is_synced'] ?? 0) as int,
       );
@@ -255,9 +261,76 @@ class RoutineTask {
         'id': id,
         'room_id': roomId,
         'task_name': taskName,
+        'interval_hours': intervalHours,
+        'anchor_hour': anchorHour,
+        'is_active': isActive,
+        'deleted': deleted,
+      };
+}
+
+/// 루틴 '발생/완료 기록' — 특정 정의의 한 주기에 대한 완료 여부.
+class RoutineTask {
+  final String id;
+  final String? definitionId;
+  final String? roomId;
+  final String taskName;
+  final String? scheduledTime; // ISO8601 (해당 주기 예정 시각)
+  final String? completedTime; // ISO8601, null = 미완료
+  final String? completedBy;
+  final String? completedByName; // 마감자 이름(표시용)
+  final bool deleted;
+  final int isSynced;
+
+  RoutineTask({
+    required this.id,
+    this.definitionId,
+    this.roomId,
+    required this.taskName,
+    this.scheduledTime,
+    this.completedTime,
+    this.completedBy,
+    this.completedByName,
+    this.deleted = false,
+    this.isSynced = 0,
+  });
+
+  bool get isCompleted => completedTime != null;
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'definition_id': definitionId,
+        'room_id': roomId,
+        'task_name': taskName,
         'scheduled_time': scheduledTime,
         'completed_time': completedTime,
         'completed_by': completedBy,
+        'completed_by_name': completedByName,
+        'deleted': deleted ? 1 : 0,
+        'is_synced': isSynced,
+      };
+
+  factory RoutineTask.fromMap(Map<String, dynamic> m) => RoutineTask(
+        id: m['id'] as String,
+        definitionId: m['definition_id'] as String?,
+        roomId: m['room_id'] as String?,
+        taskName: m['task_name'] as String? ?? '',
+        scheduledTime: m['scheduled_time'] as String?,
+        completedTime: m['completed_time'] as String?,
+        completedBy: m['completed_by'] as String?,
+        completedByName: m['completed_by_name'] as String?,
+        deleted: (m['deleted'] ?? 0) == 1,
+        isSynced: (m['is_synced'] ?? 0) as int,
+      );
+
+  Map<String, dynamic> toSyncJson() => {
+        'id': id,
+        'definition_id': definitionId,
+        'room_id': roomId,
+        'task_name': taskName,
+        'scheduled_time': scheduledTime,
+        'completed_time': completedTime,
+        'completed_by': completedBy,
+        'completed_by_name': completedByName,
         'deleted': deleted,
       };
 }

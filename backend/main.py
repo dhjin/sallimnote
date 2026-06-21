@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker, Session
 
 from models import (
     Base, Tenant, Member, TenantInvite,
-    Room, Baby, NeonatalHealthLog, RoutineTask, Notice,
+    Room, Baby, NeonatalHealthLog, RoutineTask, RoutineDefinition, Notice,
 )
 from auth import (
     hash_password, verify_password, create_token,
@@ -138,6 +138,7 @@ class HealthLogIn(BaseModel):
     baby_id:     str
     temperature: Optional[float] = None
     feeding_ml:  Optional[int]   = None
+    stool_count: Optional[int]   = None
     memo:        str = ""
     timestamp:   Optional[str] = None
     worker_id:   Optional[str] = None
@@ -145,12 +146,24 @@ class HealthLogIn(BaseModel):
 
 
 class RoutineTaskIn(BaseModel):
+    id:                Optional[str] = None
+    definition_id:     Optional[str] = None
+    room_id:           Optional[str] = None
+    task_name:         str
+    scheduled_time:    Optional[str] = None
+    completed_time:    Optional[str] = None
+    completed_by:      Optional[str] = None
+    completed_by_name: Optional[str] = None
+    deleted:           bool = False
+
+
+class RoutineDefinitionIn(BaseModel):
     id:             Optional[str] = None
     room_id:        Optional[str] = None
     task_name:      str
-    scheduled_time: Optional[str] = None
-    completed_time: Optional[str] = None
-    completed_by:   Optional[str] = None
+    interval_hours: int  = 8
+    anchor_hour:    int  = 0
+    is_active:      bool = True
     deleted:        bool = False
 
 
@@ -165,11 +178,12 @@ class NoticeIn(BaseModel):
 
 class SyncRequest(BaseModel):
     """오프라인 단말의 로컬 변경분 업로드. 서버는 테넌트 상태 반환."""
-    rooms:         list[RoomIn]        = []
-    babies:        list[BabyIn]        = []
-    health_logs:   list[HealthLogIn]   = []
-    routine_tasks: list[RoutineTaskIn] = []
-    notices:       list[NoticeIn]      = []
+    rooms:               list[RoomIn]              = []
+    babies:              list[BabyIn]              = []
+    health_logs:         list[HealthLogIn]         = []
+    routine_tasks:       list[RoutineTaskIn]       = []
+    routine_definitions: list[RoutineDefinitionIn] = []
+    notices:             list[NoticeIn]            = []
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -372,16 +386,23 @@ def sync(req: SyncRequest, tid: str = Depends(get_tenant_scope),
 
     upsert(NeonatalHealthLog, req.health_logs, lambda i: {
         "baby_id": i.baby_id, "temperature": i.temperature,
-        "feeding_ml": i.feeding_ml, "memo": i.memo,
+        "feeding_ml": i.feeding_ml, "stool_count": i.stool_count, "memo": i.memo,
         "timestamp": _parse_dt(i.timestamp) or now,
         "worker_id": i.worker_id, "deleted": i.deleted,
     })
 
-    upsert(RoutineTask, req.routine_tasks, lambda i: {
+    upsert(RoutineDefinition, req.routine_definitions, lambda i: {
         "room_id": i.room_id, "task_name": i.task_name,
+        "interval_hours": i.interval_hours, "anchor_hour": i.anchor_hour,
+        "is_active": i.is_active, "deleted": i.deleted,
+    })
+
+    upsert(RoutineTask, req.routine_tasks, lambda i: {
+        "definition_id": i.definition_id, "room_id": i.room_id, "task_name": i.task_name,
         "scheduled_time": _parse_dt(i.scheduled_time),
         "completed_time": _parse_dt(i.completed_time),
-        "completed_by": i.completed_by, "deleted": i.deleted,
+        "completed_by": i.completed_by, "completed_by_name": i.completed_by_name,
+        "deleted": i.deleted,
     })
 
     # 공지는 owner/admin 만 작성/수정 가능 (직원이 보낸 공지 변경분은 무시).
@@ -444,17 +465,24 @@ def _full_state(db: Session, tid: str, since: Optional[datetime] = None) -> dict
 
     def log_dict(l: NeonatalHealthLog) -> dict:
         return {"id": l.id, "baby_id": l.baby_id, "temperature": l.temperature,
-                "feeding_ml": l.feeding_ml, "memo": l.memo,
+                "feeding_ml": l.feeding_ml, "stool_count": l.stool_count, "memo": l.memo,
                 "timestamp": l.timestamp.isoformat() if l.timestamp else None,
                 "worker_id": l.worker_id, "deleted": l.deleted,
                 "updated_at": l.updated_at.isoformat()}
 
     def task_dict(t: RoutineTask) -> dict:
-        return {"id": t.id, "room_id": t.room_id, "task_name": t.task_name,
+        return {"id": t.id, "definition_id": t.definition_id, "room_id": t.room_id,
+                "task_name": t.task_name,
                 "scheduled_time": t.scheduled_time.isoformat() if t.scheduled_time else None,
                 "completed_time": t.completed_time.isoformat() if t.completed_time else None,
-                "completed_by": t.completed_by, "deleted": t.deleted,
-                "updated_at": t.updated_at.isoformat()}
+                "completed_by": t.completed_by, "completed_by_name": t.completed_by_name,
+                "deleted": t.deleted, "updated_at": t.updated_at.isoformat()}
+
+    def def_dict(d: RoutineDefinition) -> dict:
+        return {"id": d.id, "room_id": d.room_id, "task_name": d.task_name,
+                "interval_hours": d.interval_hours, "anchor_hour": d.anchor_hour,
+                "is_active": d.is_active, "deleted": d.deleted,
+                "updated_at": d.updated_at.isoformat()}
 
     def notice_dict(n: Notice) -> dict:
         return {"id": n.id, "title": n.title, "body": n.body, "pinned": n.pinned,
@@ -467,15 +495,18 @@ def _full_state(db: Session, tid: str, since: Optional[datetime] = None) -> dict
     logs = _f(db.query(NeonatalHealthLog).filter(NeonatalHealthLog.tenant_id == tid),
               NeonatalHealthLog).all()
     tasks = _f(db.query(RoutineTask).filter(RoutineTask.tenant_id == tid), RoutineTask).all()
+    defs = _f(db.query(RoutineDefinition).filter(RoutineDefinition.tenant_id == tid),
+              RoutineDefinition).all()
     notices = _f(db.query(Notice).filter(Notice.tenant_id == tid), Notice).all()
 
     return {
-        "rooms":         [room_dict(r) for r in rooms],
-        "babies":        [baby_dict(b) for b in babies],
-        "health_logs":   [log_dict(l) for l in logs],
-        "routine_tasks": [task_dict(t) for t in tasks],
-        "notices":       [notice_dict(n) for n in notices],
-        "synced_at":     datetime.utcnow().isoformat(),
+        "rooms":               [room_dict(r) for r in rooms],
+        "babies":              [baby_dict(b) for b in babies],
+        "health_logs":         [log_dict(l) for l in logs],
+        "routine_tasks":       [task_dict(t) for t in tasks],
+        "routine_definitions": [def_dict(d) for d in defs],
+        "notices":             [notice_dict(n) for n in notices],
+        "synced_at":           datetime.utcnow().isoformat(),
     }
 
 

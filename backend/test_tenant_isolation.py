@@ -164,6 +164,40 @@ def test_notice_write_blocked_for_non_admin(client):
     assert r.json()["notices"] == []
 
 
+def test_routine_definition_and_completion(client):
+    a = _register_tenant(client, "조리원A", "ownerA")
+    # 8시간 주기 루틴 정의 + 현재 주기 완료 기록(마감자 이름 포함)
+    r = client.post("/sync", headers=_auth(a["access_token"]), json={
+        "routine_definitions": [{"id": "def1", "task_name": "전체 소독",
+                                 "interval_hours": 8, "anchor_hour": 0}],
+        "routine_tasks": [{"id": "def1#100", "definition_id": "def1",
+                           "task_name": "전체 소독",
+                           "scheduled_time": "2026-06-21T00:00:00",
+                           "completed_time": "2026-06-21T00:30:00",
+                           "completed_by": a["member_id"],
+                           "completed_by_name": "원장"}],
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    d = next(x for x in body["routine_definitions"] if x["id"] == "def1")
+    assert d["interval_hours"] == 8
+    t = next(x for x in body["routine_tasks"] if x["id"] == "def1#100")
+    assert t["definition_id"] == "def1"
+    assert t["completed_by_name"] == "원장"
+
+
+def test_health_log_includes_stool_count(client):
+    a = _register_tenant(client, "조리원A", "ownerA")
+    r = client.post("/sync", headers=_auth(a["access_token"]), json={
+        "babies": [{"id": "baby-a", "name": "아기A"}],
+        "health_logs": [{"id": "log1", "baby_id": "baby-a", "temperature": 36.7,
+                         "feeding_ml": 60, "stool_count": 2}],
+    })
+    assert r.status_code == 200, r.text
+    log = next(x for x in r.json()["health_logs"] if x["id"] == "log1")
+    assert log["stool_count"] == 2
+
+
 def test_staff_invite_scopes_to_inviter_tenant(client):
     a = _register_tenant(client, "조리원A", "ownerA")
     b = _register_tenant(client, "조리원B", "ownerB")
