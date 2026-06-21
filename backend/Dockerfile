@@ -5,6 +5,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+RUN chmod +x start.sh
 
 VOLUME ["/data"]
 
@@ -13,4 +14,5 @@ ENV JWT_SECRET=change-me-in-production
 ENV CORS_ORIGINS=*
 
 EXPOSE 8080
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# 시작 시 alembic upgrade head 후 uvicorn 기동 (스키마 자동 최신화)
+CMD ["./start.sh"]
