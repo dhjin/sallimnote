@@ -60,19 +60,66 @@ class LocalRepo {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> toggleTaskDone(RoutineTask t, {required String workerId}) async {
-    final now = DateTime.now().toIso8601String();
+  // ── Routine definitions (반복 설정) ──────────────────────────────────
+  Future<List<RoutineDefinition>> routineDefinitions() async {
     final db = await _db;
-    await db.update(
-      'routine_tasks',
-      {
-        'completed_time': t.isCompleted ? null : now,
-        'completed_by': t.isCompleted ? null : workerId,
-        'is_synced': 0,
-      },
-      where: 'id = ?',
-      whereArgs: [t.id],
-    );
+    final rows = await db.query('routine_definitions',
+        where: 'deleted = 0', orderBy: 'task_name COLLATE NOCASE');
+    return rows.map(RoutineDefinition.fromMap).toList();
+  }
+
+  Future<void> upsertDefinition(RoutineDefinition d) async {
+    final db = await _db;
+    final map = d.toMap()..['is_synced'] = 0;
+    await db.insert('routine_definitions', map,
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deleteDefinition(RoutineDefinition d) async {
+    final db = await _db;
+    await db.update('routine_definitions', {'deleted': 1, 'is_synced': 0},
+        where: 'id = ?', whereArgs: [d.id]);
+  }
+
+  Future<RoutineTask?> occurrenceFor(String defId, String windowIso) async {
+    final db = await _db;
+    final rows = await db.query('routine_tasks',
+        where: 'definition_id = ? AND scheduled_time = ? AND deleted = 0',
+        whereArgs: [defId, windowIso], limit: 1);
+    return rows.isEmpty ? null : RoutineTask.fromMap(rows.first);
+  }
+
+  /// 현재 주기의 완료 토글. 완료 시 마감자(id/이름) 기록.
+  Future<void> setRoutineDone(
+    RoutineDefinition d,
+    DateTime windowStart, {
+    required bool done,
+    required String memberId,
+    required String memberName,
+  }) async {
+    final iso = windowStart.toIso8601String();
+    final occurrenceId = '${d.id}#${windowStart.millisecondsSinceEpoch}';
+    await upsertTask(RoutineTask(
+      id: occurrenceId,
+      definitionId: d.id,
+      roomId: d.roomId,
+      taskName: d.taskName,
+      scheduledTime: iso,
+      completedTime: done ? DateTime.now().toIso8601String() : null,
+      completedBy: done ? memberId : null,
+      completedByName: done ? memberName : null,
+    ));
+  }
+
+  /// 활성 정의 + 현재 주기 완료기록을 묶어 반환.
+  Future<List<({RoutineDefinition def, RoutineTask? occ})>> routineStatuses() async {
+    final defs = await routineDefinitions();
+    final result = <({RoutineDefinition def, RoutineTask? occ})>[];
+    for (final d in defs.where((x) => x.isActive)) {
+      final occ = await occurrenceFor(d.id, d.currentWindowStart().toIso8601String());
+      result.add((def: d, occ: occ));
+    }
+    return result;
   }
 
   // ── Notices ──────────────────────────────────────────────────────────

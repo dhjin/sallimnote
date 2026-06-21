@@ -103,25 +103,47 @@ class NeonatalHealthLog(Base):
     baby_id     = Column(String, ForeignKey("babies.id"), nullable=False, index=True)
     temperature = Column(Float, nullable=True)
     feeding_ml  = Column(Integer, nullable=True)
+    stool_count = Column(Integer, nullable=True)   # 배변 횟수
     memo        = Column(Text, default="")
     timestamp   = Column(DateTime, default=_now)
     worker_id   = Column(String, ForeignKey("members.id"), nullable=True)
+    worker_name = Column(String, nullable=True)   # 작성자 이름 스냅샷(표시용)
     created_at  = Column(DateTime, default=_now)
     updated_at  = Column(DateTime, default=_now, onupdate=_now)
     deleted     = Column(Boolean, default=False)
 
 
 class RoutineTask(Base):
-    """루틴 업무 체크 (소독/환기 등). completed_time Null = 미완료."""
+    """루틴 업무 '발생/완료 기록'. 특정 정의(definition)의 한 주기(window)에 대한
+    완료 여부를 나타낸다. completed_time Null = 미완료.
+    id 는 '<definition_id>#<window_epoch>' 형태로 결정적 생성 → 기기 간 수렴."""
     __tablename__ = "routine_tasks"
+
+    id                = Column(String, primary_key=True, default=_uuid)
+    tenant_id         = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
+    definition_id     = Column(String, nullable=True, index=True)  # 논리적 참조(앱 레벨)
+    room_id           = Column(String, ForeignKey("rooms.id"), nullable=True)
+    task_name         = Column(String, nullable=False)
+    scheduled_time    = Column(DateTime, nullable=True)   # 해당 주기의 예정 시각
+    completed_time    = Column(DateTime, nullable=True)
+    completed_by      = Column(String, ForeignKey("members.id"), nullable=True)
+    completed_by_name = Column(String, nullable=True)     # 마감자 이름 스냅샷(표시용)
+    created_at        = Column(DateTime, default=_now)
+    updated_at        = Column(DateTime, default=_now, onupdate=_now)
+    deleted           = Column(Boolean, default=False)
+
+
+class RoutineDefinition(Base):
+    """루틴 설정 — N시간 주기로 반복되는 업무 정의."""
+    __tablename__ = "routine_definitions"
 
     id             = Column(String, primary_key=True, default=_uuid)
     tenant_id      = Column(String, ForeignKey("tenants.id"), nullable=False, index=True)
     room_id        = Column(String, ForeignKey("rooms.id"), nullable=True)
     task_name      = Column(String, nullable=False)
-    scheduled_time = Column(DateTime, nullable=True)
-    completed_time = Column(DateTime, nullable=True)
-    completed_by   = Column(String, ForeignKey("members.id"), nullable=True)
+    interval_hours = Column(Integer, default=8)   # 몇 시간 주기로 돌아오는지
+    anchor_hour    = Column(Integer, default=0)   # 하루 중 주기 기준 시각(0-23)
+    is_active      = Column(Boolean, default=True)
     created_at     = Column(DateTime, default=_now)
     updated_at     = Column(DateTime, default=_now, onupdate=_now)
     deleted        = Column(Boolean, default=False)

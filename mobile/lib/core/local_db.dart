@@ -14,7 +14,7 @@ class LocalDb {
     if (_db != null) return _db!;
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, 'postpartum_care.db');
-    _db = await openDatabase(path, version: 2,
+    _db = await openDatabase(path, version: 4,
         onCreate: _onCreate, onUpgrade: _onUpgrade);
     return _db!;
   }
@@ -22,6 +22,15 @@ class LocalDb {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute(_noticesDdl);
+    }
+    if (oldVersion < 3) {
+      await db.execute(_routineDefsDdl);
+      await db.execute('ALTER TABLE neonatal_health_log ADD COLUMN stool_count INTEGER');
+      await db.execute('ALTER TABLE routine_tasks ADD COLUMN definition_id TEXT');
+      await db.execute('ALTER TABLE routine_tasks ADD COLUMN completed_by_name TEXT');
+    }
+    if (oldVersion < 4) {
+      await db.execute('ALTER TABLE neonatal_health_log ADD COLUMN worker_name TEXT');
     }
   }
 
@@ -33,6 +42,18 @@ class LocalDb {
         pinned INTEGER DEFAULT 0,
         created_by TEXT,
         created_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        is_synced INTEGER DEFAULT 0
+      )''';
+
+  static const String _routineDefsDdl = '''
+      CREATE TABLE routine_definitions (
+        id TEXT PRIMARY KEY,
+        room_id TEXT,
+        task_name TEXT NOT NULL,
+        interval_hours INTEGER DEFAULT 8,
+        anchor_hour INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
         deleted INTEGER DEFAULT 0,
         is_synced INTEGER DEFAULT 0
       )''';
@@ -64,9 +85,11 @@ class LocalDb {
         baby_id TEXT NOT NULL,
         temperature REAL,
         feeding_ml INTEGER,
+        stool_count INTEGER,
         memo TEXT DEFAULT '',
         timestamp TEXT,
         worker_id TEXT,
+        worker_name TEXT,
         deleted INTEGER DEFAULT 0,
         is_synced INTEGER DEFAULT 0
       )''');
@@ -74,15 +97,18 @@ class LocalDb {
     await db.execute('''
       CREATE TABLE routine_tasks (
         id TEXT PRIMARY KEY,
+        definition_id TEXT,
         room_id TEXT,
         task_name TEXT NOT NULL,
         scheduled_time TEXT,
         completed_time TEXT,
         completed_by TEXT,
+        completed_by_name TEXT,
         deleted INTEGER DEFAULT 0,
         is_synced INTEGER DEFAULT 0
       )''');
 
+    await db.execute(_routineDefsDdl);
     await db.execute(_noticesDdl);
 
     await db.execute('CREATE INDEX idx_log_baby ON neonatal_health_log(baby_id)');
@@ -94,7 +120,8 @@ class LocalDb {
   Future<void> clearAll() async {
     final db = await database;
     await db.transaction((txn) async {
-      for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks', 'notices']) {
+      for (final t in ['rooms', 'babies', 'neonatal_health_log', 'routine_tasks',
+                       'routine_definitions', 'notices']) {
         await txn.delete(t);
       }
     });

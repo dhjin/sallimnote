@@ -43,11 +43,13 @@ class HealthLogScreen extends ConsumerWidget {
                 title: Text([
                   if (l.temperature != null) '체온 ${l.temperature}℃',
                   if (l.feedingMl != null) '수유 ${l.feedingMl}ml',
+                  if (l.stoolCount != null) '배변 ${l.stoolCount}회',
                 ].join('  ·  ')),
                 subtitle: Text([
                   if (ts != null) fmt.format(ts),
+                  if ((l.workerName ?? '').isNotEmpty) '작성자 ${l.workerName}',
                   if (l.memo.isNotEmpty) l.memo,
-                ].join('  ')),
+                ].join('  ·  ')),
                 trailing: l.isSynced == 0
                     ? const Icon(Icons.cloud_off, size: 18, color: Colors.grey)
                     : const Icon(Icons.cloud_done, size: 18, color: Colors.green),
@@ -62,31 +64,40 @@ class HealthLogScreen extends ConsumerWidget {
   Future<void> _addLog(BuildContext context, WidgetRef ref) async {
     final temp = TextEditingController();
     final feed = TextEditingController();
+    final stool = TextEditingController();
     final memo = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('건강 기록'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-                controller: temp,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                    labelText: '체온(℃)', border: OutlineInputBorder())),
-            const SizedBox(height: 8),
-            TextField(
-                controller: feed,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                    labelText: '수유량(ml)', border: OutlineInputBorder())),
-            const SizedBox(height: 8),
-            TextField(
-                controller: memo,
-                decoration: const InputDecoration(
-                    labelText: '특이사항', border: OutlineInputBorder())),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                  controller: temp,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: '체온(℃)', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: feed,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: '수유량(ml)', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: stool,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                      labelText: '배변(회)', border: OutlineInputBorder())),
+              const SizedBox(height: 8),
+              TextField(
+                  controller: memo,
+                  decoration: const InputDecoration(
+                      labelText: '특이사항', border: OutlineInputBorder())),
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
@@ -101,15 +112,18 @@ class HealthLogScreen extends ConsumerWidget {
             babyId: baby.id,
             temperature: double.tryParse(temp.text.trim()),
             feedingMl: int.tryParse(feed.text.trim()),
+            stoolCount: int.tryParse(stool.text.trim()),
             memo: memo.text.trim(),
             timestamp: DateTime.now().toIso8601String(),
             workerId: session?.memberId,
+            workerName: session?.displayName,
           ));
       ref.invalidate(logsForBabyProvider(baby.id));
       ref.read(syncServiceProvider).syncNow();
     }
     temp.dispose();
     feed.dispose();
+    stool.dispose();
     memo.dispose();
   }
 }
