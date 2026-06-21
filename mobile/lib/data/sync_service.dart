@@ -65,6 +65,10 @@ class SyncService {
       lastError.value = '오프라인 — 네트워크 연결 없음';
       return false;
     }
+    if (!_api.hasToken) {
+      lastError.value = '로그인이 필요합니다 (로그아웃 후 재로그인)';
+      return false;
+    }
     _running = true;
     try {
       final db = await LocalDb.instance.database;
