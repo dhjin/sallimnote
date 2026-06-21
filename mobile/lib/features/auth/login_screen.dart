@@ -109,11 +109,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   }),
                   child: Text(_registerMode ? '이미 계정이 있어요 — 로그인' : '신규 조리원 개설'),
                 ),
-                TextButton(
-                  onPressed: () => Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const DiagnosticsScreen())),
-                  child: const Text('🔧 연결 진단'),
-                ),
+                if (kDebugMode)
+                  TextButton(
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const DiagnosticsScreen())),
+                    child: const Text('🔧 연결 진단'),
+                  ),
               ],
             ),
           ),

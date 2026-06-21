@@ -9,11 +9,25 @@ import '../notice/notice_screen.dart';
 import '../routine/routine_screen.dart';
 
 /// 바둑판 대시보드 — 큰 버튼 위주의 공용 태블릿 메인 화면.
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // 진입 시 1회 자동 동기화 → 로그인 직후 남아있던 오류 배너 자동 정리.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(syncServiceProvider).syncNow();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(sessionProvider);
     final sync = ref.read(syncServiceProvider);
     if (session == null) return const SizedBox.shrink();
